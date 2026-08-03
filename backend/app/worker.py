@@ -1,5 +1,6 @@
 import asyncio
 import wave
+from typing import ClassVar
 
 import redis as redis_sync
 from arq.connections import RedisSettings
@@ -63,6 +64,6 @@ async def on_startup(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [synthesize_task]
+    functions: ClassVar = [synthesize_task]
     on_startup = on_startup
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)

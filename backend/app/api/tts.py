@@ -1,17 +1,24 @@
 import logging
 import struct
 from collections.abc import AsyncIterator
+from typing import Self
 from uuid import UUID
 
 from arq.jobs import Job, JobStatus
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, model_validator
-from typing_extensions import Self
 
 from app.core.limiter import limiter
 from app.services.queue import get_redis_pool
-from app.services.tts import OUTPUT_DIR, PRESET_VOICES, SAMPLE_RATE, VOICES_DIR, cancel_key, stream_key
+from app.services.tts import (
+    OUTPUT_DIR,
+    PRESET_VOICES,
+    SAMPLE_RATE,
+    VOICES_DIR,
+    cancel_key,
+    stream_key,
+)
 
 logger = logging.getLogger(__name__)
 
