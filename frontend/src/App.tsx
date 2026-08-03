@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { DocumentUpload, VoiceSelector, GenerationPanel, type VoiceOption } from '@/components'
 
 const API_URL = 'http://127.0.0.1:8000'
 const SAVED_VOICES_KEY = 'voice4kids_saved_voices'
 
 type SavedVoice = { id: string; name: string }
+type Preset = { id: string; label: string }
 
 function loadSavedVoices(): SavedVoice[] {
   try {
@@ -34,8 +36,8 @@ function cancelJob(jobId: string, keepalive = false) {
 }
 
 function App() {
-  const [presets, setPresets] = useState<string[]>([])
-  const [voice, setVoice] = useState('')
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [selectedVoice, setSelectedVoice] = useState<VoiceOption | null>(null)
   const [text, setText] = useState('')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
@@ -44,22 +46,21 @@ function App() {
 
   const [cloningEnabled, setCloningEnabled] = useState(false)
   const [recordingPhase, setRecordingPhase] = useState<'idle' | 'recording' | 'uploading'>('idle')
+  const [recordingLevel, setRecordingLevel] = useState(0)
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null)
   const [voiceName, setVoiceName] = useState('')
   const [savedVoices, setSavedVoices] = useState<SavedVoice[]>([])
-  const [voiceSampleId, setVoiceSampleId] = useState<string | null>(null)
-  const [useClonedVoice, setUseClonedVoice] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const streamAudioRef = useRef<HTMLAudioElement | null>(null)
-  const [streamPlaying, setStreamPlaying] = useState(false)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
   const currentJobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    apiFetch<{ presets: string[]; cloning_enabled: boolean }>(`${API_URL}/api/voices`)
+    apiFetch<{ presets: Preset[]; cloning_enabled: boolean }>(`${API_URL}/api/voices`)
       .then((data) => {
         setPresets(data.presets)
-        if (data.presets.length > 0) setVoice(data.presets[0])
+        if (data.presets.length > 0) setSelectedVoice({ type: 'preset', id: data.presets[0].id })
         setCloningEnabled(data.cloning_enabled)
       })
       .catch(() => setError('Impossible de charger les voix.'))
@@ -80,10 +81,7 @@ function App() {
     }
   }, [])
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  const handleFile = async (file: File) => {
     setExtracting(true)
     setError(null)
     try {
@@ -98,7 +96,6 @@ function App() {
       setError(toMessage(err))
     } finally {
       setExtracting(false)
-      e.target.value = ''
     }
   }
 
@@ -110,11 +107,31 @@ function App() {
       const recorder = new MediaRecorder(stream)
       chunksRef.current = []
 
+      const audioContext = new AudioContext()
+      const source = audioContext.createMediaStreamSource(stream)
+      const analyser = audioContext.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      audioContextRef.current = audioContext
+
+      const levels = new Uint8Array(analyser.frequencyBinCount)
+      const updateLevel = () => {
+        analyser.getByteFrequencyData(levels)
+        const avg = levels.reduce((sum, v) => sum + v, 0) / levels.length
+        setRecordingLevel(avg / 255)
+        animationFrameRef.current = requestAnimationFrame(updateLevel)
+      }
+      updateLevel()
+
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
       recorder.onstop = async () => {
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current)
+        await audioContextRef.current?.close()
+        setRecordingLevel(0)
         stream.getTracks().forEach((t) => t.stop())
+
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         setRecordingPreviewUrl(URL.createObjectURL(blob))
         setRecordingPhase('uploading')
@@ -143,8 +160,7 @@ function App() {
         body: formData,
       })
 
-      setVoiceSampleId(data.voice_id)
-      setUseClonedVoice(true)
+      setSelectedVoice({ type: 'cloned', id: data.voice_id })
 
       const name = voiceName.trim() || `Voix du ${new Date().toLocaleDateString('fr-FR')}`
       const updated = [...savedVoices, { id: data.voice_id, name }]
@@ -175,6 +191,7 @@ function App() {
           setStatus('idle')
         } else if (data.status === 'cancelled') {
           finish()
+          setAudioUrl(null)
           setError('Génération annulée.')
           setStatus('idle')
         } else if (data.status === 'error') {
@@ -200,26 +217,17 @@ function App() {
     }
   }
 
-  const toggleStreamPlayback = () => {
-    const audio = streamAudioRef.current
-    if (!audio) return
-    if (streamPlaying) {
-      audio.pause()
-    } else {
-      audio.play()
-    }
-  }
-
   const handleGenerate = async () => {
+    if (!selectedVoice) return
+
     setStatus('loading')
     setError(null)
     setAudioUrl(null)
-    setStreamPlaying(false)
     try {
       const body =
-        useClonedVoice && voiceSampleId
-          ? { text, voice_sample_id: voiceSampleId }
-          : { text, voice }
+        selectedVoice.type === 'cloned'
+          ? { text, voice_sample_id: selectedVoice.id }
+          : { text, voice: selectedVoice.id }
 
       const data = await apiFetch<{ job_id: string }>(`${API_URL}/api/synthesize`, {
         method: 'POST',
@@ -239,140 +247,43 @@ function App() {
   }
 
   return (
-    <div>
-      <h1>Voice4Kids</h1>
+    <div className="min-h-screen bg-gradient-to-b from-amber-50 to-orange-50">
+      <div className="mx-auto max-w-2xl px-4 py-10 sm:py-14">
+        <header className="mb-10 text-center">
+          <h1 className="text-4xl font-bold text-orange-950 sm:text-5xl">📖 Voice4Kids</h1>
+          <p className="mt-2 text-orange-800/70">
+            Transforme tes histoires en audio, avec la voix de ton choix.
+          </p>
+        </header>
 
-      <label htmlFor="storyFile">Importer un document (PDF ou DOCX) :</label>
-      <br />
-      <input
-        id="storyFile"
-        type="file"
-        accept=".pdf,.docx"
-        onChange={handleFileUpload}
-        disabled={extracting}
-      />
-      {extracting && <p>Extraction du texte...</p>}
-      <br />
+        <div className="space-y-6">
+          <DocumentUpload text={text} onTextChange={setText} onFile={handleFile} extracting={extracting} />
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Écris ton texte ici, ou importe un document ci-dessus..."
-        rows={8}
-        cols={60}
-      />
-      <br />
-
-      {cloningEnabled && (
-        <>
-          <h2>Cloner ma voix</h2>
-
-          {savedVoices.length > 0 && (
-            <>
-              <label htmlFor="savedVoice">Voix déjà enregistrées :</label>
-              <br />
-              <select
-                id="savedVoice"
-                value={voiceSampleId ?? ''}
-                onChange={(e) => {
-                  setVoiceSampleId(e.target.value)
-                  setUseClonedVoice(true)
-                  setRecordingPreviewUrl(null)
-                }}
-              >
-                <option value="" disabled>
-                  -- Choisir une voix --
-                </option>
-                {savedVoices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-              <br />
-            </>
-          )}
-
-          <input
-            type="text"
-            value={voiceName}
-            onChange={(e) => setVoiceName(e.target.value)}
-            placeholder="Nom de cette voix (optionnel)"
-            disabled={recordingPhase !== 'idle'}
+          <VoiceSelector
+            presets={presets}
+            savedVoices={savedVoices}
+            selected={selectedVoice}
+            onSelect={setSelectedVoice}
+            cloningEnabled={cloningEnabled}
+            recordingPhase={recordingPhase}
+            recordingLevel={recordingLevel}
+            onStartRecording={startRecording}
+            onStopRecording={stopRecording}
+            recordingPreviewUrl={recordingPreviewUrl}
+            voiceName={voiceName}
+            onVoiceNameChange={setVoiceName}
           />
-          <br />
 
-          {recordingPhase === 'recording' ? (
-            <button onClick={stopRecording}>Arrêter l'enregistrement</button>
-          ) : (
-            <button onClick={startRecording} disabled={recordingPhase === 'uploading'}>
-              Démarrer l'enregistrement
-            </button>
-          )}
-          {recordingPhase === 'uploading' && <p>Traitement de l'enregistrement...</p>}
-
-          {recordingPreviewUrl && (
-            <>
-              <p>Écouter l'enregistrement :</p>
-              <audio controls src={recordingPreviewUrl} />
-            </>
-          )}
-
-          {voiceSampleId && recordingPhase !== 'uploading' && (
-            <>
-              <br />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={useClonedVoice}
-                  onChange={(e) => setUseClonedVoice(e.target.checked)}
-                />
-                Utiliser la voix clonée sélectionnée
-              </label>
-            </>
-          )}
-          <br />
-        </>
-      )}
-
-      <label htmlFor="voice">Voix preset :</label>
-      <br />
-      <select
-        id="voice"
-        value={voice}
-        onChange={(e) => setVoice(e.target.value)}
-        disabled={useClonedVoice}
-      >
-        {presets.map((v) => (
-          <option key={v} value={v}>
-            {v}
-          </option>
-        ))}
-      </select>
-      <br />
-
-      <button onClick={handleGenerate} disabled={status === 'loading' || !text.trim()}>
-        {status === 'loading' ? 'Génération...' : 'Générer'}
-      </button>
-      {status === 'loading' && <button onClick={cancelGeneration}>Annuler</button>}
-
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-
-      {audioUrl && status === 'loading' && (
-        <>
-          <p>Audio en cours de génération (durée pas encore connue).</p>
-          <audio
-            ref={streamAudioRef}
-            src={audioUrl}
-            onPlay={() => setStreamPlaying(true)}
-            onPause={() => setStreamPlaying(false)}
+          <GenerationPanel
+            status={status}
+            onGenerate={handleGenerate}
+            onCancel={cancelGeneration}
+            canGenerate={text.trim().length > 0 && selectedVoice !== null}
+            error={error}
+            audioUrl={audioUrl}
           />
-          <button onClick={toggleStreamPlayback}>
-            {streamPlaying ? 'Pause' : 'Écouter en direct'}
-          </button>
-        </>
-      )}
-      {audioUrl && status === 'idle' && <audio controls src={audioUrl} />}
+        </div>
+      </div>
     </div>
   )
 }
