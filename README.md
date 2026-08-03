@@ -1,92 +1,81 @@
 # Voice4Kids
 
-## 📖 Description
+Application web qui convertit des histoires (PDF ou DOCX) en audio narré en français, avec choix d'une voix preset ou clonage de sa propre voix.
 
-Voice4Kids est une application web permettant de convertir des fichiers PDF ou DOCX en audio grâce à des modèles de synthèse vocale. L'utilisateur peut sélectionner différents modèles de voix et personnaliser la sortie audio pour une expérience optimale.
+## Architecture
 
-## ✨ Fonctionnalités
+- **Backend** : FastAPI (`backend/`), gère l'extraction de texte, l'API de synthèse et le clonage de voix.
+- **Synthèse vocale** : [Kyutai Pocket TTS](https://huggingface.co/kyutai/pocket-tts), exécutée localement (aucun texte/audio envoyé à un service tiers).
+- **File d'attente** : la génération audio tourne dans un worker [`arq`](https://arq-docs.helpmanual.io/) séparé (Redis), pour ne pas bloquer l'API et gérer plusieurs générations en parallèle. L'audio est streamé en temps réel vers le client via Redis Streams pendant qu'il se génère.
+- **Frontend** : React + Vite + TypeScript (`frontend/`).
 
-✅ **Conversion de texte en parole** : Transformez des documents PDF ou DOCX en fichiers audio.    
-✅ **Choix de modèles de voix** : Sélectionnez parmi plusieurs voix pour une personnalisation optimale.   
-✅ **Enregistrement de voix personnalisées** : Enregistrez votre propre voix et utilisez-la dans la synthèse vocale.   
-✅ **Interface utilisateur interactive** : Une navigation intuitive pour faciliter le processus de conversion.   
+## Prérequis
 
----
+- [uv](https://docs.astral.sh/uv/) (gestion des dépendances et de l'environnement Python)
+- Node.js + npm
+- Docker (pour Redis en local) — ou toute autre instance Redis accessible
 
-## 🚀 Installation
+## Installation
 
-### 1️⃣ Cloner le dépôt :
-
-```bash
-git clone https://github.com/Paquito35/Master_Project.git
-cd Master_Project
-```
-
-### 2️⃣ Installer les dépendances :
+### 1. Redis
 
 ```bash
-pip install -r requirements.txt
+docker run -d -p 6379:6379 --name voice4kids-redis redis:7-alpine
 ```
 
-### 3️⃣ Configurer l'environnement :
-
-- Assurez-vous d'avoir **Python 3.10.12** installé.   
-- Installez les dépendances nécessaires pour **PyTorch** et les modèles **TTS**.   
-
-### 4️⃣ Lancer l'application :
+### 2. Backend
 
 ```bash
-python app.py
+cd backend
+cp .env.example .env   # renseigner HF_TOKEN si tu veux le clonage de voix (voir plus bas)
+uv sync
 ```
 
-Accédez ensuite à l'application via : [http://127.0.0.1:5000/](http://127.0.0.1:5000/).
+### 3. Frontend
 
----
+```bash
+cd frontend
+npm install
+```
 
-## 🛠️ Utilisation
+## Lancer le projet (développement)
 
-1. **Choisir un modèle de voix** : Sélectionnez une voix parmi les options disponibles.   
-2. **Télécharger un document** : Chargez un fichier PDF ou DOCX contenant le texte à convertir.   
-3. **Configurer les options de voix** : Suivez les instructions pour enregistrer ou sélectionner une voix personnalisée.   
-4. **Générer l'audio** : L'application transformera le texte en audio et vous proposera un téléchargement.   
+Trois process à lancer en parallèle, en plus de Redis :
 
----
+```bash
+# Worker (génère l'audio, charge le modèle TTS au démarrage)
+cd backend && uv run arq app.worker.WorkerSettings
 
-## 📂 Structure du Projet
+# API
+cd backend && uv run uvicorn app.main:app --reload --port 8000
 
-📌 **`app.py`** : Fichier principal de l'application Flask.   
-📌 **`templates/`** : Contient les fichiers HTML pour les pages web.   
-📌 **`static/`** : Contient les fichiers CSS, JavaScript et autres ressources statiques.   
-📌 **`uploads/`** : Dossier où les fichiers téléchargés sont stockés.   
-📌 **`outputs/`** : Dossier où les fichiers audio générés sont enregistrés.    
+# Frontend
+cd frontend && npm run dev
+```
 
----
+Le frontend est accessible sur `http://localhost:5173`, l'API sur `http://127.0.0.1:8000`.
 
-## 🤝 Contribuer
+## Clonage de voix (optionnel)
 
-Les contributions sont les bienvenues ! 🎉
+Nécessite un compte HuggingFace :
 
-1. **Forkez** le dépôt.   
-2. **Créez une branche** pour votre fonctionnalité :   
-   ```bash
-   git checkout -b feature/AmazingFeature
-   ```
-3. **Commitez vos modifications** :   
-   ```bash
-   git commit -m 'Add some AmazingFeature'
-   ```
-4. **Poussez vers la branche** :   
-   ```bash
-   git push origin feature/AmazingFeature
-   ```
-5. **Ouvrez une Pull Request**.   
+1. Accepter les conditions sur [huggingface.co/kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts).
+2. Créer un token en lecture sur [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+3. Le renseigner dans `backend/.env` (`HF_TOKEN=...`).
 
----
+Sans token, l'application fonctionne normalement avec les voix presets uniquement.
 
-## 📜 Licence  
+## Structure du projet
 
-Ce projet est sous licence **MIT**.
-
----
-
-🚀 _Bon développement et bonne écoute !_ 🎧
+```
+backend/
+  app/
+    api/        # routes FastAPI (extraction, tts, voices)
+    core/       # config (.env), rate limiting, middleware
+    services/   # logique métier (extraction, conversion audio, tts, queue)
+    worker.py   # worker arq (génération audio)
+    main.py     # point d'entrée FastAPI
+frontend/
+  src/
+    App.tsx     # UI principale
+```

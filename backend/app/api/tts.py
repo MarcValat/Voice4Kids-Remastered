@@ -1,17 +1,25 @@
 import logging
-import struct
 from collections.abc import AsyncIterator
+from typing import Self
 from uuid import UUID
 
+from arq import ArqRedis
 from arq.jobs import Job, JobStatus
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, model_validator
-from typing_extensions import Self
 
 from app.core.limiter import limiter
 from app.services.queue import get_redis_pool
-from app.services.tts import OUTPUT_DIR, PRESET_VOICES, SAMPLE_RATE, VOICES_DIR, cancel_key, stream_key
+from app.services.tts import (
+    UnknownVoicePresetError,
+    VoiceSampleNotFoundError,
+    cancel_key,
+    output_path,
+    resolve_voice_reference,
+    stream_key,
+    wav_streaming_header,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +38,12 @@ class SynthesizeRequest(BaseModel):
         return self
 
 
-def _resolve_voice_reference(payload: SynthesizeRequest) -> str:
-    if payload.voice_sample_id is not None:
-        voice_path = VOICES_DIR / f"{payload.voice_sample_id}.wav"
-        if not voice_path.is_file():
-            raise HTTPException(status_code=404, detail="Échantillon de voix introuvable.")
-        return str(voice_path)
-
-    if payload.voice not in PRESET_VOICES:
-        raise HTTPException(status_code=400, detail=f"Unknown voice preset: {payload.voice}")
-    return PRESET_VOICES[payload.voice]
+async def _get_job_or_404(job_id: str, pool: ArqRedis) -> tuple[Job, JobStatus]:
+    job = Job(job_id, pool)
+    status = await job.status()
+    if status == JobStatus.not_found:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    return job, status
 
 
 @router.post("/synthesize", status_code=202)
@@ -48,7 +52,14 @@ async def synthesize(request: Request, payload: SynthesizeRequest) -> dict[str, 
     if not payload.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    voice_reference = _resolve_voice_reference(payload)
+    try:
+        voice_reference = resolve_voice_reference(
+            payload.voice, str(payload.voice_sample_id) if payload.voice_sample_id else None
+        )
+    except VoiceSampleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except UnknownVoicePresetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pool = await get_redis_pool()
     job = await pool.enqueue_job("synthesize_task", payload.text, voice_reference)
@@ -59,12 +70,10 @@ async def synthesize(request: Request, payload: SynthesizeRequest) -> dict[str, 
 
 
 @router.post("/synthesize/{job_id}/cancel")
-async def cancel_synthesis(job_id: str) -> dict[str, str]:
+@limiter.limit("30/minute")
+async def cancel_synthesis(request: Request, job_id: str) -> dict[str, str]:
     pool = await get_redis_pool()
-    job = Job(job_id, pool)
-    status = await job.status()
-    if status == JobStatus.not_found:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
+    await _get_job_or_404(job_id, pool)
 
     await pool.set(cancel_key(job_id), "1", ex=3600)
     logger.info("Cancellation requested for job %s", job_id)
@@ -74,11 +83,7 @@ async def cancel_synthesis(job_id: str) -> dict[str, str]:
 @router.get("/synthesize/{job_id}/status")
 async def synthesis_status(job_id: str) -> dict[str, str]:
     pool = await get_redis_pool()
-    job = Job(job_id, pool)
-    status = await job.status()
-
-    if status == JobStatus.not_found:
-        raise HTTPException(status_code=404, detail="Job introuvable.")
+    job, status = await _get_job_or_404(job_id, pool)
 
     if status != JobStatus.complete:
         return {"status": status.value}
@@ -102,29 +107,10 @@ async def synthesis_status(job_id: str) -> dict[str, str]:
 
 @router.get("/synthesize/{job_id}/audio")
 def synthesis_audio(job_id: str) -> FileResponse:
-    path = OUTPUT_DIR / f"{job_id}.wav"
+    path = output_path(job_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Audio introuvable.")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
-
-
-def _wav_streaming_header(sample_rate: int, num_channels: int = 1, bits_per_sample: int = 16) -> bytes:
-    """A canonical WAV header with a placeholder (max) data size, for a stream
-    whose final length isn't known upfront. Tolerated by browsers, same trick
-    Kyutai's own pocket-tts server uses for its streaming endpoint."""
-    byte_rate = sample_rate * num_channels * bits_per_sample // 8
-    block_align = num_channels * bits_per_sample // 8
-    data_size = 0x7FFFFFFF - 44
-    riff_size = data_size + 36
-    return (
-        b"RIFF"
-        + struct.pack("<I", riff_size)
-        + b"WAVE"
-        + b"fmt "
-        + struct.pack("<IHHIIHH", 16, 1, num_channels, sample_rate, byte_rate, block_align, bits_per_sample)
-        + b"data"
-        + struct.pack("<I", data_size)
-    )
 
 
 @router.get("/synthesize/{job_id}/stream")
@@ -133,7 +119,7 @@ async def synthesis_stream(job_id: str) -> StreamingResponse:
     s_key = stream_key(job_id)
 
     async def generate() -> AsyncIterator[bytes]:
-        yield _wav_streaming_header(SAMPLE_RATE)
+        yield wav_streaming_header()
 
         last_id = "0"
         while True:

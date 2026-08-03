@@ -3,6 +3,8 @@ from pathlib import Path
 
 import av
 
+from app.services.tts import SAMPLE_RATE
+
 MAX_RECORDING_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
@@ -25,10 +27,10 @@ def convert_to_wav(content: bytes, output_path: Path) -> None:
 
     try:
         output_container = av.open(str(output_path), mode="w", format="wav")
-        output_stream = output_container.add_stream("pcm_s16le", rate=24000)
+        output_stream = output_container.add_stream("pcm_s16le", rate=SAMPLE_RATE)
         output_stream.layout = "mono"
 
-        resampler = av.AudioResampler(format="s16", layout="mono", rate=24000)
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
 
         for frame in input_container.decode(audio=0):
             for resampled_frame in resampler.resample(frame):
