@@ -37,6 +37,9 @@ function App() {
   const [useClonedVoice, setUseClonedVoice] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const streamAudioRef = useRef<HTMLAudioElement | null>(null)
+  const [streamPlaying, setStreamPlaying] = useState(false)
+  const currentJobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     fetch(`${API_URL}/api/voices`)
@@ -49,6 +52,24 @@ function App() {
       .catch(() => setError('Impossible de charger les voix.'))
 
     setSavedVoices(loadSavedVoices())
+  }, [])
+
+  useEffect(() => {
+    const cancelCurrentJob = () => {
+      const jobId = currentJobIdRef.current
+      if (jobId) {
+        fetch(`${API_URL}/api/synthesize/${jobId}/cancel`, {
+          method: 'POST',
+          keepalive: true,
+        })
+      }
+    }
+    window.addEventListener('pagehide', cancelCurrentJob)
+    window.addEventListener('beforeunload', cancelCurrentJob)
+    return () => {
+      window.removeEventListener('pagehide', cancelCurrentJob)
+      window.removeEventListener('beforeunload', cancelCurrentJob)
+    }
   }, [])
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -134,9 +155,62 @@ function App() {
     }
   }
 
+  const pollJobStatus = (jobId: string) => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/synthesize/${jobId}/status`)
+        const data = await res.json()
+
+        if (data.status === 'complete') {
+          clearInterval(interval)
+          currentJobIdRef.current = null
+          setAudioUrl(`${API_URL}${data.audio_url}`)
+          setStatus('idle')
+        } else if (data.status === 'cancelled') {
+          clearInterval(interval)
+          currentJobIdRef.current = null
+          setError('Génération annulée.')
+          setStatus('idle')
+        } else if (data.status === 'error') {
+          clearInterval(interval)
+          currentJobIdRef.current = null
+          setError(data.error ?? 'Erreur de génération.')
+          setStatus('error')
+        }
+      } catch {
+        clearInterval(interval)
+        currentJobIdRef.current = null
+        setError('Erreur de suivi de la génération.')
+        setStatus('error')
+      }
+    }, 1000)
+  }
+
+  const cancelGeneration = async () => {
+    const jobId = currentJobIdRef.current
+    if (!jobId) return
+    try {
+      await fetch(`${API_URL}/api/synthesize/${jobId}/cancel`, { method: 'POST' })
+    } catch {
+      // best effort — the beforeunload/pagehide handler also tries this
+    }
+  }
+
+  const toggleStreamPlayback = () => {
+    const audio = streamAudioRef.current
+    if (!audio) return
+    if (streamPlaying) {
+      audio.pause()
+    } else {
+      audio.play()
+    }
+  }
+
   const handleGenerate = async () => {
     setStatus('loading')
     setError(null)
+    setAudioUrl(null)
+    setStreamPlaying(false)
     try {
       const body =
         useClonedVoice && voiceSampleId
@@ -148,13 +222,14 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail ?? 'Erreur inconnue')
-      }
-      const blob = await res.blob()
-      setAudioUrl(URL.createObjectURL(blob))
-      setStatus('idle')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
+
+      // Play progressively while the job runs; swapped for the final, seekable
+      // file once generation completes (see pollJobStatus).
+      currentJobIdRef.current = data.job_id
+      setAudioUrl(`${API_URL}/api/synthesize/${data.job_id}/stream`)
+      pollJobStatus(data.job_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
       setStatus('error')
@@ -277,10 +352,25 @@ function App() {
       <button onClick={handleGenerate} disabled={status === 'loading' || !text.trim()}>
         {status === 'loading' ? 'Génération...' : 'Générer'}
       </button>
+      {status === 'loading' && <button onClick={cancelGeneration}>Annuler</button>}
 
       {error && <p style={{ color: 'red' }}>{error}</p>}
 
-      {audioUrl && <audio controls src={audioUrl} />}
+      {audioUrl && status === 'loading' && (
+        <>
+          <p>Audio en cours de génération (durée pas encore connue).</p>
+          <audio
+            ref={streamAudioRef}
+            src={audioUrl}
+            onPlay={() => setStreamPlaying(true)}
+            onPause={() => setStreamPlaying(false)}
+          />
+          <button onClick={toggleStreamPlayback}>
+            {streamPlaying ? 'Pause' : 'Écouter en direct'}
+          </button>
+        </>
+      )}
+      {audioUrl && status === 'idle' && <audio controls src={audioUrl} />}
     </div>
   )
 }
