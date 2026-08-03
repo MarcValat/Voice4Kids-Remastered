@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.extraction import router as extraction_router
 from app.api.tts import router as tts_router
+from app.api.voices import router as voices_router
 from app.services.tts import tts_service
 
 FRONTEND_DEV_ORIGIN = "http://localhost:5173"
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
 
     app.include_router(tts_router)
     app.include_router(extraction_router)
+    app.include_router(voices_router)
 
     return app
 
