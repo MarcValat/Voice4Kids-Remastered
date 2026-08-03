@@ -1,6 +1,5 @@
 import logging
 import os
-import struct
 from pathlib import Path
 
 import torch
@@ -12,8 +11,6 @@ logger = logging.getLogger(__name__)
 
 LANGUAGE = "french_24l"
 SAMPLE_RATE = 24000  # matches french_24l.yaml's mimi.sample_rate
-AUDIO_CHANNELS = 1
-AUDIO_SAMPLE_WIDTH_BYTES = 2  # 16-bit PCM
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
 OUTPUT_DIR = DATA_DIR / "outputs"
@@ -76,7 +73,7 @@ def cancel_key(job_id: str) -> str:
 
 
 def output_path(job_id: str) -> Path:
-    return OUTPUT_DIR / f"{job_id}.wav"
+    return OUTPUT_DIR / f"{job_id}.webm"
 
 
 def resolve_voice_reference(voice: str | None, voice_sample_id: str | None) -> str:
@@ -92,27 +89,6 @@ def resolve_voice_reference(voice: str | None, voice_sample_id: str | None) -> s
     if voice not in PRESET_VOICES:
         raise UnknownVoicePresetError(f"Unknown voice preset: {voice}")
     return PRESET_VOICES[voice]
-
-
-def wav_streaming_header(sample_rate: int = SAMPLE_RATE) -> bytes:
-    """A canonical WAV header with a placeholder (max) data size, for a stream
-    whose final length isn't known upfront. Tolerated by browsers, same trick
-    Kyutai's own pocket-tts server uses for its streaming endpoint."""
-    num_channels = AUDIO_CHANNELS
-    bits_per_sample = AUDIO_SAMPLE_WIDTH_BYTES * 8
-    byte_rate = sample_rate * num_channels * bits_per_sample // 8
-    block_align = num_channels * bits_per_sample // 8
-    data_size = 0x7FFFFFFF - 44
-    riff_size = data_size + 36
-    return (
-        b"RIFF"
-        + struct.pack("<I", riff_size)
-        + b"WAVE"
-        + b"fmt "
-        + struct.pack("<IHHIIHH", 16, 1, num_channels, sample_rate, byte_rate, block_align, bits_per_sample)
-        + b"data"
-        + struct.pack("<I", data_size)
-    )
 
 
 class TTSService:
