@@ -2,8 +2,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, UploadFile
 
+from app.core.config import get_settings
 from app.services.audio_conversion import ConversionError, convert_to_wav
-from app.services.tts import PRESET_VOICES, VOICES_DIR, tts_service
+from app.services.tts import PRESET_VOICES, VOICES_DIR
 
 router = APIRouter(prefix="/api", tags=["voices"])
 
@@ -12,16 +13,16 @@ router = APIRouter(prefix="/api", tags=["voices"])
 def list_voices() -> dict[str, object]:
     return {
         "presets": list(PRESET_VOICES.keys()),
-        "cloning_enabled": tts_service.voice_cloning_enabled,
+        "cloning_enabled": get_settings().hf_token is not None,
     }
 
 
 @router.post("/voices/clone")
 async def clone_voice(audio: UploadFile) -> dict[str, str]:
-    if not tts_service.voice_cloning_enabled:
+    if get_settings().hf_token is None:
         raise HTTPException(
             status_code=403,
-            detail="Le clonage de voix n'est pas disponible (HF_TOKEN manquant ou non autorisé).",
+            detail="Le clonage de voix n'est pas disponible (HF_TOKEN manquant).",
         )
 
     content = await audio.read()
