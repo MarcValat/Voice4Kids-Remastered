@@ -79,3 +79,7 @@ frontend/
   src/
     App.tsx     # UI principale
 ```
+
+## Licence
+
+[GPL-3.0](LICENSE)
