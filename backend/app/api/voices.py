@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api", tags=["voices"])
 @router.get("/voices")
 def list_voices() -> dict[str, object]:
     return {
-        "presets": list(PRESET_VOICES.keys()),
+        "presets": [
+            {"id": name, "label": name.replace("_", " ").title()} for name in PRESET_VOICES
+        ],
         "cloning_enabled": get_settings().hf_token is not None,
     }
 
