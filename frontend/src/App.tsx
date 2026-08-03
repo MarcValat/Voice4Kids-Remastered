@@ -18,6 +18,21 @@ function persistSavedVoices(voices: SavedVoice[]) {
   localStorage.setItem(SAVED_VOICES_KEY, JSON.stringify(voices))
 }
 
+function toMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
+  return data as T
+}
+
+function cancelJob(jobId: string, keepalive = false) {
+  return fetch(`${API_URL}/api/synthesize/${jobId}/cancel`, { method: 'POST', keepalive })
+}
+
 function App() {
   const [presets, setPresets] = useState<string[]>([])
   const [voice, setVoice] = useState('')
@@ -28,8 +43,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   const [cloningEnabled, setCloningEnabled] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [uploadingSample, setUploadingSample] = useState(false)
+  const [recordingPhase, setRecordingPhase] = useState<'idle' | 'recording' | 'uploading'>('idle')
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null)
   const [voiceName, setVoiceName] = useState('')
   const [savedVoices, setSavedVoices] = useState<SavedVoice[]>([])
@@ -42,9 +56,8 @@ function App() {
   const currentJobIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    fetch(`${API_URL}/api/voices`)
-      .then((res) => res.json())
-      .then((data: { presets: string[]; cloning_enabled: boolean }) => {
+    apiFetch<{ presets: string[]; cloning_enabled: boolean }>(`${API_URL}/api/voices`)
+      .then((data) => {
         setPresets(data.presets)
         if (data.presets.length > 0) setVoice(data.presets[0])
         setCloningEnabled(data.cloning_enabled)
@@ -57,12 +70,7 @@ function App() {
   useEffect(() => {
     const cancelCurrentJob = () => {
       const jobId = currentJobIdRef.current
-      if (jobId) {
-        fetch(`${API_URL}/api/synthesize/${jobId}/cancel`, {
-          method: 'POST',
-          keepalive: true,
-        })
-      }
+      if (jobId) cancelJob(jobId, true)
     }
     window.addEventListener('pagehide', cancelCurrentJob)
     window.addEventListener('beforeunload', cancelCurrentJob)
@@ -81,15 +89,13 @@ function App() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await fetch(`${API_URL}/api/extract`, {
+      const data = await apiFetch<{ text: string }>(`${API_URL}/api/extract`, {
         method: 'POST',
         body: formData,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
       setText(data.text)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toMessage(err))
     } finally {
       setExtracting(false)
       e.target.value = ''
@@ -111,12 +117,13 @@ function App() {
         stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
         setRecordingPreviewUrl(URL.createObjectURL(blob))
+        setRecordingPhase('uploading')
         await uploadVoiceSample(blob)
       }
 
       mediaRecorderRef.current = recorder
       recorder.start()
-      setRecording(true)
+      setRecordingPhase('recording')
     } catch {
       setError("Impossible d'accéder au microphone.")
     }
@@ -124,62 +131,59 @@ function App() {
 
   const stopRecording = () => {
     mediaRecorderRef.current?.stop()
-    setRecording(false)
   }
 
   const uploadVoiceSample = async (blob: Blob) => {
-    setUploadingSample(true)
     setError(null)
     try {
       const formData = new FormData()
       formData.append('audio', blob, 'recording.webm')
-      const res = await fetch(`${API_URL}/api/voices/clone`, {
+      const data = await apiFetch<{ voice_id: string }>(`${API_URL}/api/voices/clone`, {
         method: 'POST',
         body: formData,
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
 
       setVoiceSampleId(data.voice_id)
       setUseClonedVoice(true)
 
       const name = voiceName.trim() || `Voix du ${new Date().toLocaleDateString('fr-FR')}`
-      const updated = [...savedVoices, { id: data.voice_id as string, name }]
+      const updated = [...savedVoices, { id: data.voice_id, name }]
       setSavedVoices(updated)
       persistSavedVoices(updated)
       setVoiceName('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toMessage(err))
     } finally {
-      setUploadingSample(false)
+      setRecordingPhase('idle')
     }
   }
 
   const pollJobStatus = (jobId: string) => {
     const interval = setInterval(async () => {
+      const finish = () => {
+        clearInterval(interval)
+        currentJobIdRef.current = null
+      }
       try {
-        const res = await fetch(`${API_URL}/api/synthesize/${jobId}/status`)
-        const data = await res.json()
+        const data = await apiFetch<{ status: string; audio_url?: string; error?: string }>(
+          `${API_URL}/api/synthesize/${jobId}/status`
+        )
 
         if (data.status === 'complete') {
-          clearInterval(interval)
-          currentJobIdRef.current = null
+          finish()
           setAudioUrl(`${API_URL}${data.audio_url}`)
           setStatus('idle')
         } else if (data.status === 'cancelled') {
-          clearInterval(interval)
-          currentJobIdRef.current = null
+          finish()
           setError('Génération annulée.')
           setStatus('idle')
         } else if (data.status === 'error') {
-          clearInterval(interval)
-          currentJobIdRef.current = null
+          finish()
           setError(data.error ?? 'Erreur de génération.')
           setStatus('error')
         }
       } catch {
-        clearInterval(interval)
-        currentJobIdRef.current = null
+        finish()
         setError('Erreur de suivi de la génération.')
         setStatus('error')
       }
@@ -190,7 +194,7 @@ function App() {
     const jobId = currentJobIdRef.current
     if (!jobId) return
     try {
-      await fetch(`${API_URL}/api/synthesize/${jobId}/cancel`, { method: 'POST' })
+      await cancelJob(jobId)
     } catch {
       // best effort — the beforeunload/pagehide handler also tries this
     }
@@ -217,13 +221,11 @@ function App() {
           ? { text, voice_sample_id: voiceSampleId }
           : { text, voice }
 
-      const res = await fetch(`${API_URL}/api/synthesize`, {
+      const data = await apiFetch<{ job_id: string }>(`${API_URL}/api/synthesize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
 
       // Play progressively while the job runs; swapped for the final, seekable
       // file once generation completes (see pollJobStatus).
@@ -231,7 +233,7 @@ function App() {
       setAudioUrl(`${API_URL}/api/synthesize/${data.job_id}/stream`)
       pollJobStatus(data.job_id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(toMessage(err))
       setStatus('error')
     }
   }
@@ -296,18 +298,18 @@ function App() {
             value={voiceName}
             onChange={(e) => setVoiceName(e.target.value)}
             placeholder="Nom de cette voix (optionnel)"
-            disabled={recording || uploadingSample}
+            disabled={recordingPhase !== 'idle'}
           />
           <br />
 
-          {!recording ? (
-            <button onClick={startRecording} disabled={uploadingSample}>
+          {recordingPhase === 'recording' ? (
+            <button onClick={stopRecording}>Arrêter l'enregistrement</button>
+          ) : (
+            <button onClick={startRecording} disabled={recordingPhase === 'uploading'}>
               Démarrer l'enregistrement
             </button>
-          ) : (
-            <button onClick={stopRecording}>Arrêter l'enregistrement</button>
           )}
-          {uploadingSample && <p>Traitement de l'enregistrement...</p>}
+          {recordingPhase === 'uploading' && <p>Traitement de l'enregistrement...</p>}
 
           {recordingPreviewUrl && (
             <>
@@ -316,7 +318,7 @@ function App() {
             </>
           )}
 
-          {voiceSampleId && !uploadingSample && (
+          {voiceSampleId && recordingPhase !== 'uploading' && (
             <>
               <br />
               <label>
