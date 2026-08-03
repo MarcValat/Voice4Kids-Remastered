@@ -5,6 +5,7 @@ outputs/
 backend/.venv/
 backend/__pycache__/
 backend/**/__pycache__/
+backend/data/
 
 # frontend
 frontend/node_modules/
