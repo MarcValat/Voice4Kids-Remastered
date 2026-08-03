@@ -79,6 +79,10 @@ export default function GenerationPanel({
   audioUrl,
 }: GenerationPanelProps) {
   const streamAudioRef = useRef<HTMLAudioElement | null>(null)
+  const finalAudioRef = useRef<HTMLAudioElement | null>(null)
+  // Where playback was on the live element when generation completed, so the
+  // final player can resume from there instead of restarting from zero.
+  const handoffRef = useRef<{ time: number } | null>(null)
 
   // While generating, re-fetch the live stream ourselves (instead of pointing
   // <audio src> straight at it) so we can rebuild a real, seekable Blob from
@@ -175,10 +179,38 @@ export default function GenerationPanel({
       })
 
     return () => {
+      // Remember where we were so the final player (once generation
+      // completes) can resume from here instead of restarting at 0:00.
+      handoffRef.current = { time: audioEl.currentTime }
       clearInterval(refreshInterval)
       audioEl.removeEventListener('ended', handleEnded)
       reader?.cancel().catch(() => {})
       if (lastBlobUrl) URL.revokeObjectURL(lastBlobUrl)
+    }
+  }, [audioUrl, status])
+
+  // Once the final file is ready, resume playback position where the live
+  // player left off (browsers block auto-resuming a freshly-created <audio>
+  // element without a fresh user gesture, so this restores the position but
+  // doesn't auto-play — one click on play continues from there).
+  useEffect(() => {
+    if (status !== 'idle' || !audioUrl) return
+    const audio = finalAudioRef.current
+    const handoff = handoffRef.current
+    handoffRef.current = null
+    if (!audio || !handoff) return
+
+    const applyHandoff = () => {
+      audio.currentTime = handoff.time
+    }
+
+    // A freshly-mounted <audio> hasn't loaded metadata yet — seeking
+    // immediately can be silently ignored. Wait until it's actually ready.
+    if (audio.readyState >= 1) {
+      applyHandoff()
+    } else {
+      audio.addEventListener('loadedmetadata', applyHandoff, { once: true })
+      return () => audio.removeEventListener('loadedmetadata', applyHandoff)
     }
   }, [audioUrl, status])
 
@@ -215,7 +247,7 @@ export default function GenerationPanel({
       {audioUrl && status === 'idle' && (
         <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50/50 p-4">
           <p className="mb-3 text-sm text-orange-700">🎉 Ton histoire est prête !</p>
-          <audio controls src={audioUrl} className="w-full" />
+          <audio ref={finalAudioRef} controls src={audioUrl} className="w-full" />
         </div>
       )}
     </Section>

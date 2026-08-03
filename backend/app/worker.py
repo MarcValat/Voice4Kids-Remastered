@@ -51,7 +51,7 @@ def _synthesize_and_publish(job_id: str, text: str, voice_reference: str) -> str
                 if client.exists(c_key):
                     cancelled = True
                     break
-                pcm_bytes = (chunk.clamp(-1, 1) * 32767).short().numpy().tobytes()
+                pcm_bytes = (chunk.clamp(-1, 1) * 32767).short().cpu().numpy().tobytes()
                 wav_file.writeframes(pcm_bytes)
                 buffer.extend(pcm_bytes)
                 if len(buffer) >= BATCH_FLUSH_BYTES:
