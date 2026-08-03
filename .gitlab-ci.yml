@@ -6,7 +6,9 @@ variables:
   UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
 
 .backend:
-  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  image:
+    name: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    pull_policy: if-not-present
   cache:
     key:
       files:
@@ -22,7 +24,9 @@ variables:
     - uv sync --locked
 
 .frontend:
-  image: node:22-slim
+  image:
+    name: node:22-slim
+    pull_policy: if-not-present
   cache:
     key:
       files:
