@@ -20,10 +20,38 @@ VOICES_DIR = DATA_DIR / "voices"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
 
-# Curated subset of Kyutai's predefined voices with a French-language embedding.
-PRESET_VOICES = {
-    "estelle": "estelle",
-}
+# All of Kyutai's predefined voices confirmed to have a French-language
+# embedding (checked via huggingface_hub.list_repo_files on
+# kyutai/pocket-tts-without-voice-cloning, languages/french_24l/embeddings/).
+_FRENCH_PRESET_VOICE_NAMES = [
+    "estelle",
+    "cosette",
+    "marius",
+    "javert",
+    "fantine",
+    "eponine",
+    "azelma",
+    "alba",
+    "jean",
+    "anna",
+    "vera",
+    "charles",
+    "paul",
+    "george",
+    "mary",
+    "jane",
+    "michael",
+    "eve",
+    "bill_boerst",
+    "peter_yearsley",
+    "stuart_bell",
+    "caro_davy",
+    "giovanni",
+    "lola",
+    "juergen",
+    "rafael",
+]
+PRESET_VOICES = {name: name for name in _FRENCH_PRESET_VOICE_NAMES}
 
 
 class VoiceReferenceError(ValueError):
