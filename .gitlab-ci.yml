@@ -1,0 +1,59 @@
+stages:
+  - lint
+  - test
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+
+.backend:
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  cache:
+    key:
+      files:
+        - backend/uv.lock
+    paths:
+      - $UV_CACHE_DIR
+  before_script:
+    - cd backend
+    # Installs the exact locked dependencies, including the CUDA build of
+    # torch used for local GPU acceleration — heavy on the first run, but
+    # cached afterwards by uv.lock's hash. Tests never load the real model
+    # (mocked), so the CUDA build itself is never exercised here.
+    - uv sync --locked
+
+.frontend:
+  image: node:22-slim
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/node_modules
+  before_script:
+    - cd frontend
+    - npm ci
+
+backend:lint:
+  extends: .backend
+  stage: lint
+  script:
+    - uvx ruff check app/ tests/
+
+backend:test:
+  extends: .backend
+  stage: test
+  script:
+    - uv run pytest -q
+
+frontend:lint:
+  extends: .frontend
+  stage: lint
+  script:
+    - npm run lint
+    - npx tsc -b --noEmit
+
+frontend:test:
+  extends: .frontend
+  stage: test
+  script:
+    - npm test
