@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.extraction import router as extraction_router
 from app.api.tts import router as tts_router
 from app.services.tts import tts_service
 
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(tts_router)
+    app.include_router(extraction_router)
 
     return app
 
