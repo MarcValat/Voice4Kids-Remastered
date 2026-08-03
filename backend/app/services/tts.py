@@ -3,6 +3,7 @@ import os
 import struct
 from pathlib import Path
 
+import torch
 from pocket_tts import TTSModel
 
 from app.core.config import get_settings
@@ -126,10 +127,17 @@ class TTSService:
         if settings.hf_token:
             os.environ.setdefault("HF_TOKEN", settings.hf_token)
 
-        logger.info("Loading Kyutai Pocket TTS model (%s)...", LANGUAGE)
-        self._model = TTSModel.load_model(language=LANGUAGE)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Loading Kyutai Pocket TTS model (%s) on %s...", LANGUAGE, device)
+        # int8 dynamic quantization of the attention/FFN layers only helps on
+        # CPU (~27% faster, no measurable quality impact per the model's own
+        # docs) — skip it on GPU, which is faster anyway, and quantized CPU
+        # kernels aren't usable on CUDA.
+        self._model = TTSModel.load_model(language=LANGUAGE, quantize=(device == "cpu"))
+        self._model.to(device)
         logger.info(
-            "TTS model loaded (voice cloning %s).",
+            "TTS model loaded on %s (voice cloning %s).",
+            device,
             "enabled" if self._model.has_voice_cloning else "disabled — no valid HF_TOKEN",
         )
 
