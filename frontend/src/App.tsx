@@ -40,6 +40,7 @@ function App() {
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption | null>(null)
   const [text, setText] = useState('')
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [extracting, setExtracting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -186,12 +187,17 @@ function App() {
         )
 
         if (data.status === 'complete') {
+          // audioUrl stays pointed at the live /stream endpoint — the
+          // MediaSource-backed player already holds the complete audio by
+          // the time generation finishes, no need to swap to a final file.
+          // The final file is only used for the download link.
           finish()
-          setAudioUrl(`${API_URL}${data.audio_url}`)
+          if (data.audio_url) setDownloadUrl(`${API_URL}${data.audio_url}`)
           setStatus('idle')
         } else if (data.status === 'cancelled') {
           finish()
           setAudioUrl(null)
+          setDownloadUrl(null)
           setError('Génération annulée.')
           setStatus('idle')
         } else if (data.status === 'error') {
@@ -223,6 +229,7 @@ function App() {
     setStatus('loading')
     setError(null)
     setAudioUrl(null)
+    setDownloadUrl(null)
     try {
       const body =
         selectedVoice.type === 'cloned'
@@ -281,6 +288,7 @@ function App() {
             canGenerate={text.trim().length > 0 && selectedVoice !== null}
             error={error}
             audioUrl={audioUrl}
+            downloadUrl={downloadUrl}
           />
         </div>
       </div>
