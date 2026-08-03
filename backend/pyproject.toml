@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "arq>=0.28.0",
     "av>=18.0.0",
     "fastapi[standard]>=0.141.1",
     "pocket-tts>=2.1.0",

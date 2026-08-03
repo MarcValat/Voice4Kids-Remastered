@@ -7,15 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.extraction import router as extraction_router
 from app.api.tts import router as tts_router
 from app.api.voices import router as voices_router
-from app.services.tts import tts_service
+from app.services.queue import close_redis_pool, get_redis_pool
 
 FRONTEND_DEV_ORIGIN = "http://localhost:5173"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    tts_service.load()
+    await get_redis_pool()
     yield
+    await close_redis_pool()
 
 
 def create_app() -> FastAPI:
