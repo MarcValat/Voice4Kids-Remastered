@@ -1,0 +1,11 @@
+.python-version
+outputs/
+
+# backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
