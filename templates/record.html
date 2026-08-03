@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="static/styles.css">
+    <title>Record Your Voice</title>
+    <style>
+        /* Main body styling to center content vertically and horizontally */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Container for all the content */
+        .container {
+            background: #FFFCF2;  /* Soft Cream */
+            padding: 20px;
+            border-radius: 10px;
+            width: 100%;
+            max-width: 500px;  /* Max width for the container */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+        h1 {
+            color: #403D39; /* Dark Gray */
+        }
+
+        /* Paragraph with text to read */
+        #textToRead {
+            font-style: italic;
+            color: #403D39; /* Dark Gray */
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        /* Button styles */
+        button {
+            background: #EB5E28; /* Warm Orange */
+            color: white;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            padding: 10px 20px;
+            margin-top: 10px;
+            width: 100%;
+            max-width: 400px; /* Max width for the button */
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        button:disabled {
+            background: #ddd;  /* Disabled state */
+        }
+
+        button:hover {
+            background: #D04C1C; /* Slightly darker orange */
+        }
+
+        /* Responsive styling */
+        @media screen and (max-width: 600px) {
+            .container {
+                width: 90%;  /* 90% width on smaller screens */
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Record Your Voice</h1>
+        <p>Click the button and read the displayed text:</p>
+        <p id="textToRead">"Le chat agile saute sur le canapé, tout en observant le ciel bleu. Un étrange bruit provient du fond de la maison, mais personne n'y prête attention. Parmi les arbres, une brise légère fait onduler les feuilles dorées, alors que le soleil commence à se coucher à l'horizon. La pluie s'arrête enfin, laissant place à un calme absolu. Marie et Paul, assis sur le banc, échangent des sourires complices. À quelques pas, une bicyclette rouge attend son propriétaire, tandis que les oiseaux chantent une mélodie douce."</p>
+
+        <button id="startRecording">Start Recording</button>
+        <button id="stopRecording" disabled>Stop Recording</button>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        document.getElementById("startRecording").addEventListener("click", async () => {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const formData = new FormData();
+                formData.append("audio", audioBlob, "recording.wav");
+
+                // Save the recording to the server
+                const response = await fetch("/save_recording", { method: "POST", body: formData });
+                const result = await response.json();
+
+                if (result.file_path) {
+                    // Redirect to main page and pass file path
+                    window.location.href = `/?recording=${encodeURIComponent(result.file_path)}`;
+                } else {
+                    alert("Error saving recording");
+                }
+            };
+
+            mediaRecorder.start();
+            document.getElementById("startRecording").disabled = true;
+            document.getElementById("stopRecording").disabled = false;
+        });
+
+        document.getElementById("stopRecording").addEventListener("click", () => {
+            mediaRecorder.stop();
+            document.getElementById("startRecording").disabled = false;
+            document.getElementById("stopRecording").disabled = true;
+        });
+    </script>
+</body>
+</html>

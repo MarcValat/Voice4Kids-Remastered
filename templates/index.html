@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="static/code/styles.css">
+    <title>Livre Text-to-Speech</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+        input, select, button { margin: 10px; padding: 10px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="page-number" class="page-number">Page 1</div>
+        <div class="flipbook">
+            <!-- Couverture -->
+            <div class="hard cover">
+                <img src="/static/ressources/assetCover.jpg" alt="Cover Image" class="cover-image">
+            </div>
+
+            <!-- Pages 2-3: Choix du modèle -->
+            <div class="page">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource29.png" alt="Background Image" class="background-image-top-right">
+                <h2>Choisir la voix</h2>
+                <img src="/static/ressources/ressource1.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource15.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource8.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <div class="page">
+                <img src="/static/ressources/ressource9.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource14.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource16.png" alt="Background Image" class="background-image-top-right">
+                <select id="model" name="model">
+                    <option value="" disabled selected>-- Sélectionnez une option --</option>
+                    <option value="your_tts">Votre voix</option>
+                    <option value="xtts_v2">Voix pré-enregistrée</option>
+                </select>
+                <img src="/static/ressources/ressource3.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource25.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource17.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <!-- Pages 4-5: Dynamique selon le choix précédent -->
+            <div class="page hidden" id="speaker_options">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource27.png" alt="Background Image" class="background-image-top-right">
+                <h2>Enregistrer une nouvelle voix ou choisir une voix pré-existante</h2>
+                <img src="/static/ressources/ressource4.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource26.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource19.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+            <div class="page hidden" id="speaker_choice">
+                <img src="/static/ressources/ressource28.png" alt="Background Image" class="background-image-top-right">
+                <img src="/static/ressources/ressource6.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource7.png" alt="Background Image" class="background-image-top-left">
+
+                <select id="voiceOption">
+                    <option value="" disabled selected>-- Sélectionnez une option --</option>
+                    <option value="upload">Choisir une de vos voix pré-enregistrée</option>
+                    <option value="record">Enregistrer une nouvelle voix</option>
+                </select>
+                <img src="/static/ressources/ressource5.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource9.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource12.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <!-- Pages 6-7: Enregistrement de la voix -->
+            <div class="page hidden" id="recordingPage1">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource6.png" alt="Background Image" class="background-image-top-right">
+                <div class="container">
+                    <h1>Enregistrez votre voix</h1>
+                    <br> <br>
+                    <label>Appuyez sur le bouton et lisez ce texte :</label>
+                    <br> <br>
+                    <p id="textToRead">"Le chat agile saute sur le canapé, tout en observant le ciel bleu. Un étrange bruit provient du fond de la maison, mais personne n'y prête attention."</p>
+                </div>
+                <img src="/static/ressources/ressource7.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource11.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource14.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+            <div class="page hidden" id="recordingPage2">
+                <img src="/static/ressources/ressource8.png" alt="Background Image" class="background-image-top-right">
+                <img src="/static/ressources/ressource22.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource23.png" alt="Background Image" class="background-image-top-left">
+                <input type="text" id="recordingName" placeholder="Nom du fichier (ex: ma_voix)">
+                <div class="container">
+                    <button id="startRecording">Démarrer l'enregistrement</button>
+                    <button id="stopRecording" disabled>Arrêter</button>
+                </div>
+                <img src="/static/ressources/ressource9.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource19.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource21.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <!-- Pages 8-9: Upload d'un fichier audio ou Enregistrement -->
+            <div class="page hidden" id="upload_section1">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource10.png" alt="Background Image" class="background-image-top-right">
+                <h2>Choisir une de vos voix</h2>
+                <img src="/static/ressources/ressource25.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource26.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource29.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+            <div class="page hidden" id="upload_section2">
+                <img src="/static/ressources/ressource11.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource2.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource1.png" alt="Background Image" class="background-image-top-right">
+                <select id="speaker-your-tts" name="speaker-your-tts">
+                    <option value="" disabled selected>-- Sélectionnez une voix --</option>
+                    {% if "your_tts" in models %}
+                        {% for speaker in models["your_tts"]["speakers"] %}
+                            <option value="{{ speaker }}">{{ speaker }}</option>
+                        {% endfor %}
+                    {% endif %}
+                </select>
+                <img src="/static/ressources/ressource12.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource30.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource24.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <!-- Pages 10-11: Choix du locuteur si IA sélectionnée -->
+            <div class="page hidden" id="speakerSelection1">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource13.png" alt="Background Image" class="background-image-top-right">
+                <h2>Choisir un locuteur</h2>
+                <p>Si vous avez déjà choisi votre voix ne tenez pas compte de cette page</p>
+                <img src="/static/ressources/ressource14.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource4.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource5.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+            <div class="page hidden" id="speakerSelection2">
+                <img src="/static/ressources/ressource15.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource6.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource7.png" alt="Background Image" class="background-image-top-right">
+                <label for="speaker-xtts">Locuteur :</label>
+                <select id="speaker-xtts" name="speaker-xtts">
+                    <option value="" disabled selected>-- Sélectionnez une voix --</option>
+                    {% if "xtts_v2" in models %}
+                        {% for speaker in models["xtts_v2"]["speakers"] %}
+                            <option value="{{ speaker }}">{{ speaker }}</option>
+                        {% endfor %}
+                    {% endif %}
+                </select>
+                <img src="/static/ressources/ressource17.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource8.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource9.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+            <!-- Pages 12-13: Choix de l’histoire -->
+            <div class="page" id="storyPage1">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource16.png" alt="Background Image" class="background-image-top-right">
+
+                <h2>Choisissez une histoire</h2>
+                <label for="storyFile">Téléverser un document (PDF/DOCX) :</label>
+                <label for="storyFile"></label>
+                <label for="storyFile">Télécharger une histoire ci-dessous</label>
+                <a href="https://carnet-de-contes.jimdofree.com/" target="_blank">Carnet de Contes</a>
+
+                <img src="/static/ressources/ressource18.png" alt="Background Image" class="background-image-bottom-right">
+                <img src="/static/ressources/ressource10.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource11.png" alt="Background Image" class="background-image-bottom-left">
+            </div>
+            <div class="page" id="storyPage2">
+                <img src="/static/ressources/ressource19.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource12.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource13.png" alt="Background Image" class="background-image-top-right">
+
+                <input type="file" id="storyFile" name="file" accept=".pdf, .docx">
+
+                <img src="/static/ressources/ressource14.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource15.png" alt="Background Image" class="background-image-bottom-right">
+                <img src="/static/ressources/ressource16.png" alt="Background Image" class="background-image-bottom">
+            </div>
+
+            <!-- Page 14: Convert to Speech -->
+            <div class="page" id="synthPage1">
+                <img src="/static/ressources/LogoVoice4KidsCropped.png" alt="Background Image" class="background-image-top-left">
+                <img src="/static/ressources/ressource21.png" alt="Background Image" class="background-image-top-right">
+                <div id="loadingCircle" class="hidden">Patientez...</div>
+                <img src="/static/ressources/ressource17.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource18.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource19.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+            <div class="page" id="synthPage2">
+                <img src="/static/ressources/ressource23.png" alt="Background Image" class="background-image-top-right">
+                <img src="/static/ressources/ressource5.png" alt="Background Image" class="background-image-top">
+                <img src="/static/ressources/ressource6.png" alt="Background Image" class="background-image-top-left">
+                <audio id="audioPlayer" class="hidden" controls>
+                    <source id="audioSource" type="audio/wav">
+                    Votre navigateur ne supporte pas l'élément audio.
+                </audio>
+                <img src="/static/ressources/ressource7.png" alt="Background Image" class="background-image-bottom-left">
+                <img src="/static/ressources/ressource8.png" alt="Background Image" class="background-image-bottom">
+                <img src="/static/ressources/ressource1.png" alt="Background Image" class="background-image-bottom-right">
+            </div>
+
+
+
+            <!-- Quatrième de couverture -->
+            <div class="hard cover-back">
+                <img src="/static/ressources/assetCover-Back.jpg" alt="Cover Image" class="cover-image">
+            </div>            
+        </div>
+    </div>
+
+    <script src="static/code/jquery.js"></script>
+    <script src="static/code/turn.js"></script>
+    <script src="static/code/script.js" defer></script>
+    <script>
+        console.log("📂 script.js est bien chargé !");
+    </script>
+</body>
+</html>
