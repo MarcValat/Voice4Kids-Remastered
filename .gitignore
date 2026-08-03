@@ -1,6 +1,3 @@
-.python-version
-outputs/
-
 # backend
 backend/.venv/
 backend/__pycache__/
