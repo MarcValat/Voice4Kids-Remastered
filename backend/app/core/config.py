@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     hf_token: str | None = None
     redis_url: str = "redis://localhost:6379"
+    frontend_origin: str = "http://localhost:5173"
 
 
 @lru_cache

@@ -1,5 +1,7 @@
 # Voice4Kids
 
+**Version 1.0.0**
+
 Application web qui convertit des histoires (PDF ou DOCX) en audio narré en français, avec choix d'une voix preset ou clonage de sa propre voix.
 
 ## Architecture
@@ -54,6 +56,44 @@ cd frontend && npm run dev
 ```
 
 Le frontend est accessible sur `http://localhost:5173`, l'API sur `http://127.0.0.1:8000`.
+
+## Déploiement avec Docker
+
+```bash
+cp .env.example .env   # ajuster si besoin (voir commentaires dans le fichier)
+docker compose up -d --build
+# ou : make up
+```
+
+Le frontend est servi sur `http://localhost:8080`, l'API sur `http://localhost:8000`.
+
+Le `Makefile` fournit des raccourcis pour ces commandes :
+
+| Commande     | Effet                                                              |
+| ------------ | ------------------------------------------------------------------- |
+| `make up`    | Build les images si besoin et démarre toute la stack en arrière-plan |
+| `make down`  | Arrête et supprime les conteneurs                                    |
+| `make build` | Rebuild les images sans démarrer la stack                            |
+| `make logs`  | Affiche les logs de tous les services en continu                     |
+| `make test`  | Lance les suites de tests backend (pytest) et frontend (vitest)      |
+| `make lint`  | Lance les linters backend (ruff) et frontend (oxlint, tsc)           |
+
+Par défaut, l'image backend installe une version CPU-only de torch (fonctionne partout, sans
+GPU). Pour utiliser l'accélération GPU (NVIDIA + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+installés sur l'hôte) :
+
+```bash
+TORCH_VARIANT=gpu docker compose up -d --build
+```
+
+et décommenter le bloc `deploy.resources.reservations.devices` des services `api`/`worker` dans
+`docker-compose.yml`. Le choix ne change que le poids de l'image téléchargée/installée — le
+modèle détecte de toute façon automatiquement au démarrage si un GPU est réellement disponible
+(`torch.cuda.is_available()`) et bascule sur CPU sinon.
+
+Si l'application est exposée sur d'autres URLs que `localhost` (domaine, reverse-proxy...),
+ajuste `FRONTEND_ORIGIN` et `VITE_API_URL` dans `.env` en conséquence — voir les commentaires
+dans `.env.example`.
 
 ## Clonage de voix (optionnel)
 

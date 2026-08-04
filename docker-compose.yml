@@ -1,0 +1,72 @@
+services:
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./backend
+      args:
+        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    environment:
+      REDIS_URL: redis://redis:6379
+      HF_TOKEN: ${HF_TOKEN:-}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8080}
+    volumes:
+      - voice-data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # Uncomment to use the GPU build (TORCH_VARIANT=gpu) on a host with an
+    # NVIDIA GPU + nvidia-container-toolkit installed:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  worker:
+    build:
+      context: ./backend
+      args:
+        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    command: ["arq", "app.worker.WorkerSettings"]
+    environment:
+      REDIS_URL: redis://redis:6379
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - voice-data:/app/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # Same as api — uncomment for GPU acceleration (TORCH_VARIANT=gpu). This
+    # is the service that actually runs model inference, so it benefits the
+    # most from a GPU.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  voice-data:
