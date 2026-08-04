@@ -71,7 +71,10 @@ backend:test:
   extends: .backend
   stage: test
   script:
-    - uv run pytest -q
+    # --no-sync: `uv run` implicitly re-syncs the environment against the
+    # lockfile before running, which would silently reinstall CUDA torch
+    # over the CPU-only swap done in before_script.
+    - uv run --no-sync pytest -q
 
 frontend:lint:
   extends: .frontend
