@@ -10,11 +10,10 @@ from slowapi.errors import RateLimitExceeded
 from app.api.extraction import router as extraction_router
 from app.api.tts import router as tts_router
 from app.api.voices import router as voices_router
+from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.middleware import MaxBodySizeMiddleware
 from app.services.queue import close_redis_pool, get_redis_pool
-
-FRONTEND_DEV_ORIGIN = "http://localhost:5173"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,7 +42,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[FRONTEND_DEV_ORIGIN],
+        allow_origins=[get_settings().frontend_origin],
         allow_methods=["*"],
         allow_headers=["*"],
     )
