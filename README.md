@@ -1,5 +1,7 @@
 # Voice4Kids
 
+**Version 1.0.0**
+
 Application web qui convertit des histoires (PDF ou DOCX) en audio narré en français, avec choix d'une voix preset ou clonage de sa propre voix.
 
 ## Architecture
@@ -60,9 +62,21 @@ Le frontend est accessible sur `http://localhost:5173`, l'API sur `http://127.0.
 ```bash
 cp .env.example .env   # ajuster si besoin (voir commentaires dans le fichier)
 docker compose up -d --build
+# ou : make up
 ```
 
 Le frontend est servi sur `http://localhost:8080`, l'API sur `http://localhost:8000`.
+
+Le `Makefile` fournit des raccourcis pour ces commandes :
+
+| Commande     | Effet                                                              |
+| ------------ | ------------------------------------------------------------------- |
+| `make up`    | Build les images si besoin et démarre toute la stack en arrière-plan |
+| `make down`  | Arrête et supprime les conteneurs                                    |
+| `make build` | Rebuild les images sans démarrer la stack                            |
+| `make logs`  | Affiche les logs de tous les services en continu                     |
+| `make test`  | Lance les suites de tests backend (pytest) et frontend (vitest)      |
+| `make lint`  | Lance les linters backend (ruff) et frontend (oxlint, tsc)           |
 
 Par défaut, l'image backend installe une version CPU-only de torch (fonctionne partout, sans
 GPU). Pour utiliser l'accélération GPU (NVIDIA + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)

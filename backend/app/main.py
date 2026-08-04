@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Voice4Kids API", lifespan=lifespan)
+    app = FastAPI(title="Voice4Kids API", version="1.0.0", lifespan=lifespan)
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
