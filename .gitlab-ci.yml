@@ -1,0 +1,90 @@
+stages:
+  - lint
+  - test
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.cache/uv"
+
+.backend:
+  image:
+    name: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    pull_policy: if-not-present
+  cache:
+    key:
+      files:
+        - backend/uv.lock
+    paths:
+      - $UV_CACHE_DIR
+  before_script:
+    - cd backend
+    # torch is pinned to the CUDA build for local GPU use, but this runner
+    # has no GPU and tests never load the real model — installing the CUDA
+    # build (and its nvidia-*/triton/cuda-* sibling packages, which
+    # --no-install-package torch alone does NOT skip) would only add
+    # multiple GB to download/cache for nothing. Exclude all of them, then
+    # install the much smaller CPU-only torch build instead.
+    - >
+      uv sync --locked
+      --no-install-package torch
+      --no-install-package triton
+      --no-install-package cuda-bindings
+      --no-install-package cuda-pathfinder
+      --no-install-package cuda-toolkit
+      --no-install-package nvidia-cublas-cu12
+      --no-install-package nvidia-cuda-cupti-cu12
+      --no-install-package nvidia-cuda-nvrtc-cu12
+      --no-install-package nvidia-cuda-runtime-cu12
+      --no-install-package nvidia-cudnn-cu12
+      --no-install-package nvidia-cufft-cu12
+      --no-install-package nvidia-cufile-cu12
+      --no-install-package nvidia-curand-cu12
+      --no-install-package nvidia-cusolver-cu12
+      --no-install-package nvidia-cusparse-cu12
+      --no-install-package nvidia-cusparselt-cu12
+      --no-install-package nvidia-nccl-cu12
+      --no-install-package nvidia-nvjitlink-cu12
+      --no-install-package nvidia-nvshmem-cu12
+      --no-install-package nvidia-nvtx-cu12
+    - uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+.frontend:
+  image:
+    name: node:22-slim
+    pull_policy: if-not-present
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/node_modules
+  before_script:
+    - cd frontend
+    - npm ci
+
+backend:lint:
+  extends: .backend
+  stage: lint
+  script:
+    - uvx ruff check app/ tests/
+
+backend:test:
+  extends: .backend
+  stage: test
+  script:
+    # --no-sync: `uv run` implicitly re-syncs the environment against the
+    # lockfile before running, which would silently reinstall CUDA torch
+    # over the CPU-only swap done in before_script.
+    - uv run --no-sync pytest -q
+
+frontend:lint:
+  extends: .frontend
+  stage: lint
+  script:
+    - npm run lint
+    - npx tsc -b --noEmit
+
+frontend:test:
+  extends: .frontend
+  stage: test
+  script:
+    - npm test

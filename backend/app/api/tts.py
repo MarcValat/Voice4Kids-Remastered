@@ -18,7 +18,6 @@ from app.services.tts import (
     output_path,
     resolve_voice_reference,
     stream_key,
-    wav_streaming_header,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,7 +109,7 @@ def synthesis_audio(job_id: str) -> FileResponse:
     path = output_path(job_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Audio introuvable.")
-    return FileResponse(path, media_type="audio/wav", filename=path.name)
+    return FileResponse(path, media_type="audio/webm", filename=path.name)
 
 
 @router.get("/synthesize/{job_id}/stream")
@@ -119,8 +118,6 @@ async def synthesis_stream(job_id: str) -> StreamingResponse:
     s_key = stream_key(job_id)
 
     async def generate() -> AsyncIterator[bytes]:
-        yield wav_streaming_header()
-
         last_id = "0"
         while True:
             entries = await pool.xread({s_key: last_id}, block=5000, count=10)
@@ -136,4 +133,4 @@ async def synthesis_stream(job_id: str) -> StreamingResponse:
                     if data:
                         yield data
 
-    return StreamingResponse(generate(), media_type="audio/wav")
+    return StreamingResponse(generate(), media_type="audio/webm")
