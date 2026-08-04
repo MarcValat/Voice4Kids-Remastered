@@ -15,25 +15,20 @@ WORKDIR /app
 ARG TORCH_VARIANT=cpu
 ENV UV_CPU_TORCH_FLAGS="--no-install-package torch --no-install-package triton --no-install-package cuda-bindings --no-install-package cuda-pathfinder --no-install-package cuda-toolkit --no-install-package nvidia-cublas-cu12 --no-install-package nvidia-cuda-cupti-cu12 --no-install-package nvidia-cuda-nvrtc-cu12 --no-install-package nvidia-cuda-runtime-cu12 --no-install-package nvidia-cudnn-cu12 --no-install-package nvidia-cufft-cu12 --no-install-package nvidia-cufile-cu12 --no-install-package nvidia-curand-cu12 --no-install-package nvidia-cusolver-cu12 --no-install-package nvidia-cusparse-cu12 --no-install-package nvidia-cusparselt-cu12 --no-install-package nvidia-nccl-cu12 --no-install-package nvidia-nvjitlink-cu12 --no-install-package nvidia-nvshmem-cu12 --no-install-package nvidia-nvtx-cu12"
 
-# Dependencies first, separate from application code, so this (slow) layer
-# is only rebuilt when pyproject.toml/uv.lock actually change.
+# Dependencies only, separate from application code, so this (slow) layer is
+# only rebuilt when pyproject.toml/uv.lock actually change — not on every
+# code edit. This project has no [build-system] (uv.lock marks it
+# `source = { virtual = "." }`), so uv never installs "the project itself"
+# as a package anyway — nothing else needs to run after COPY app below.
 COPY pyproject.toml uv.lock ./
 RUN if [ "$TORCH_VARIANT" = "cpu" ]; then \
-        uv sync --locked --no-install-project $UV_CPU_TORCH_FLAGS ; \
+        uv sync --locked --no-install-project $UV_CPU_TORCH_FLAGS \
+        && uv pip install torch --index-url https://download.pytorch.org/whl/cpu ; \
     else \
         uv sync --locked --no-install-project ; \
     fi
 
 COPY app ./app
-# `uv pip install torch` must be the very last uv-related step: any later
-# `uv sync --no-install-package torch` doesn't just skip installing it, it
-# actively enforces torch's absence and would uninstall it again.
-RUN if [ "$TORCH_VARIANT" = "cpu" ]; then \
-        uv sync --locked $UV_CPU_TORCH_FLAGS \
-        && uv pip install torch --index-url https://download.pytorch.org/whl/cpu ; \
-    else \
-        uv sync --locked ; \
-    fi
 
 ENV PATH="/app/.venv/bin:$PATH"
 
