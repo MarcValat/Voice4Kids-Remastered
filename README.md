@@ -55,6 +55,32 @@ cd frontend && npm run dev
 
 Le frontend est accessible sur `http://localhost:5173`, l'API sur `http://127.0.0.1:8000`.
 
+## Déploiement avec Docker
+
+```bash
+cp .env.example .env   # ajuster si besoin (voir commentaires dans le fichier)
+docker compose up -d --build
+```
+
+Le frontend est servi sur `http://localhost:8080`, l'API sur `http://localhost:8000`.
+
+Par défaut, l'image backend installe une version CPU-only de torch (fonctionne partout, sans
+GPU). Pour utiliser l'accélération GPU (NVIDIA + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+installés sur l'hôte) :
+
+```bash
+TORCH_VARIANT=gpu docker compose up -d --build
+```
+
+et décommenter le bloc `deploy.resources.reservations.devices` des services `api`/`worker` dans
+`docker-compose.yml`. Le choix ne change que le poids de l'image téléchargée/installée — le
+modèle détecte de toute façon automatiquement au démarrage si un GPU est réellement disponible
+(`torch.cuda.is_available()`) et bascule sur CPU sinon.
+
+Si l'application est exposée sur d'autres URLs que `localhost` (domaine, reverse-proxy...),
+ajuste `FRONTEND_ORIGIN` et `VITE_API_URL` dans `.env` en conséquence — voir les commentaires
+dans `.env.example`.
+
 ## Clonage de voix (optionnel)
 
 Nécessite un compte HuggingFace :
