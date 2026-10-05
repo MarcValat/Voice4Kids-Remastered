@@ -62,7 +62,19 @@ describe('GenerationPanel', () => {
       />
     )
 
-    expect(screen.getByText(/télécharger/i)).toHaveAttribute('href', 'http://x/audio')
+    expect(screen.getByText(/télécharger/i)).toHaveAttribute('href', 'http://x/audio?format=mp3')
+  })
+
+  it('downloads in the chosen format', async () => {
+    render(
+      <GenerationPanel
+        {...baseProps({ status: 'idle', audioUrl: 'http://x/stream', downloadUrl: 'http://x/audio' })}
+      />
+    )
+
+    await userEvent.selectOptions(screen.getByLabelText(/format du fichier/i), 'wav')
+
+    expect(screen.getByText(/télécharger/i)).toHaveAttribute('href', 'http://x/audio?format=wav')
   })
 
   it('does not show the download link while still loading', () => {
