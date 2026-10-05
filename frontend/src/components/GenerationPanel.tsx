@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Section from './Section'
 import Button from './Button'
 
@@ -7,6 +7,14 @@ const MSE_MIME_TYPE = 'audio/webm; codecs="opus"'
 // src>), so there's no in-browser playback fallback for it — only Chrome,
 // Edge and Firefox can play the generated audio.
 const MSE_SUPPORTED = typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported(MSE_MIME_TYPE)
+
+// Must match the formats accepted by the backend's /audio endpoint.
+const DOWNLOAD_FORMATS = [
+  { id: 'mp3', label: 'MP3 (compatible partout)' },
+  { id: 'm4a', label: 'M4A (iPhone, Mac)' },
+  { id: 'wav', label: 'WAV (sans compression, plus lourd)' },
+  { id: 'webm', label: "WebM (format d'origine)" },
+]
 
 function LoadingBars() {
   return (
@@ -42,6 +50,7 @@ export default function GenerationPanel({
   downloadUrl,
 }: GenerationPanelProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [downloadFormat, setDownloadFormat] = useState('mp3')
 
   // Streams the audio straight into a MediaSource SourceBuffer as chunks
   // arrive — unlike the old approach (rebuilding a full Blob and swapping
@@ -145,13 +154,27 @@ export default function GenerationPanel({
             </p>
           )}
           {status === 'idle' && downloadUrl && (
-            <a
-              href={downloadUrl}
-              download
-              className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-orange-700 hover:text-orange-900"
-            >
-              ⬇️ Télécharger l'audio
-            </a>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <select
+                value={downloadFormat}
+                onChange={(e) => setDownloadFormat(e.target.value)}
+                aria-label="Format du fichier"
+                className="rounded-xl border border-orange-200 bg-white px-2 py-1.5 text-orange-900 outline-none focus:border-orange-300"
+              >
+                {DOWNLOAD_FORMATS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              <a
+                href={`${downloadUrl}?format=${downloadFormat}`}
+                download
+                className="inline-flex items-center gap-1.5 font-medium text-orange-700 hover:text-orange-900"
+              >
+                ⬇️ Télécharger
+              </a>
+            </div>
           )}
         </div>
       )}

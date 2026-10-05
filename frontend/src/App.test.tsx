@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
+import { DEFAULT_VOICE_SETTINGS } from '@/components'
 
 const API_URL = 'http://127.0.0.1:8000'
 
@@ -61,7 +62,7 @@ describe('App', () => {
       `${API_URL}/api/synthesize`,
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ text: 'Bonjour', voice: 'estelle' }),
+        body: JSON.stringify({ text: 'Bonjour', voice: 'estelle', settings: DEFAULT_VOICE_SETTINGS }),
       })
     )
   })

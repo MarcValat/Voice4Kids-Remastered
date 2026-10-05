@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { DocumentUpload, VoiceSelector, GenerationPanel, type VoiceOption } from '@/components'
+import {
+  DocumentUpload,
+  VoiceSelector,
+  VoiceSettingsPanel,
+  GenerationPanel,
+  DEFAULT_VOICE_SETTINGS,
+  type VoiceOption,
+  type VoiceSettings,
+} from '@/components'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 const SAVED_VOICES_KEY = 'voice4kids_saved_voices'
+const VOICE_SETTINGS_KEY = 'voice4kids_voice_settings'
+const MAX_VOICE_FILE_BYTES = 20 * 1024 * 1024 // must match backend MAX_RECORDING_BYTES
 
 type SavedVoice = { id: string; name: string }
 type Preset = { id: string; label: string }
@@ -20,14 +30,39 @@ function persistSavedVoices(voices: SavedVoice[]) {
   localStorage.setItem(SAVED_VOICES_KEY, JSON.stringify(voices))
 }
 
+function loadVoiceSettings(): VoiceSettings {
+  try {
+    const raw = localStorage.getItem(VOICE_SETTINGS_KEY)
+    return raw ? { ...DEFAULT_VOICE_SETTINGS, ...(JSON.parse(raw) as Partial<VoiceSettings>) } : DEFAULT_VOICE_SETTINGS
+  } catch {
+    return DEFAULT_VOICE_SETTINGS
+  }
+}
+
+function persistVoiceSettings(settings: VoiceSettings) {
+  try {
+    localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // Remembering the sliders is a convenience; ignore storage failures.
+  }
+}
+
 function toMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.detail ?? 'Erreur inconnue')
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch {
+    throw new Error('Impossible de contacter le serveur.')
+  }
+  const data = await res.json().catch(() => null)
+  if (!res.ok) {
+    const detail = data?.detail
+    throw new Error(typeof detail === 'string' ? detail : `Erreur du serveur (${res.status}).`)
+  }
   return data as T
 }
 
@@ -49,8 +84,11 @@ function App() {
   const [recordingPhase, setRecordingPhase] = useState<'idle' | 'recording' | 'uploading'>('idle')
   const [recordingLevel, setRecordingLevel] = useState(0)
   const [recordingPreviewUrl, setRecordingPreviewUrl] = useState<string | null>(null)
+  const [pendingSample, setPendingSample] = useState<{ blob: Blob; filename: string } | null>(null)
   const [voiceName, setVoiceName] = useState('')
   const [savedVoices, setSavedVoices] = useState<SavedVoice[]>([])
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(loadVoiceSettings)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -64,7 +102,7 @@ function App() {
         if (data.presets.length > 0) setSelectedVoice({ type: 'preset', id: data.presets[0].id })
         setCloningEnabled(data.cloning_enabled)
       })
-      .catch(() => setError('Impossible de charger les voix.'))
+      .catch(() => setVoiceError('Impossible de charger les voix.'))
 
     setSavedVoices(loadSavedVoices())
   }, [])
@@ -100,9 +138,15 @@ function App() {
     }
   }
 
+  const setSample = (sample: { blob: Blob; filename: string } | null) => {
+    if (recordingPreviewUrl) URL.revokeObjectURL(recordingPreviewUrl)
+    setRecordingPreviewUrl(sample ? URL.createObjectURL(sample.blob) : null)
+    setPendingSample(sample)
+  }
+
   const startRecording = async () => {
-    setError(null)
-    setRecordingPreviewUrl(null)
+    setVoiceError(null)
+    setSample(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const recorder = new MediaRecorder(stream)
@@ -134,16 +178,15 @@ function App() {
         stream.getTracks().forEach((t) => t.stop())
 
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType })
-        setRecordingPreviewUrl(URL.createObjectURL(blob))
-        setRecordingPhase('uploading')
-        await uploadVoiceSample(blob)
+        setSample({ blob, filename: 'recording.webm' })
+        setRecordingPhase('idle')
       }
 
       mediaRecorderRef.current = recorder
       recorder.start()
       setRecordingPhase('recording')
     } catch {
-      setError("Impossible d'accéder au microphone.")
+      setVoiceError("Impossible d'accéder au microphone.")
     }
   }
 
@@ -151,11 +194,23 @@ function App() {
     mediaRecorderRef.current?.stop()
   }
 
-  const uploadVoiceSample = async (blob: Blob) => {
-    setError(null)
+  const importVoiceFile = (file: File) => {
+    setVoiceError(null)
+    if (file.size > MAX_VOICE_FILE_BYTES) {
+      setVoiceError('Fichier audio trop volumineux (20 Mo max). Coupe un extrait de quelques secondes.')
+      return
+    }
+    setSample({ blob: file, filename: file.name })
+  }
+
+  // Returns whether the voice was added, so the selector can close its panel.
+  const addVoice = async (): Promise<boolean> => {
+    if (!pendingSample) return false
+    setVoiceError(null)
+    setRecordingPhase('uploading')
     try {
       const formData = new FormData()
-      formData.append('audio', blob, 'recording.webm')
+      formData.append('audio', pendingSample.blob, pendingSample.filename)
       const data = await apiFetch<{ voice_id: string }>(`${API_URL}/api/voices/clone`, {
         method: 'POST',
         body: formData,
@@ -168,10 +223,29 @@ function App() {
       setSavedVoices(updated)
       persistSavedVoices(updated)
       setVoiceName('')
+      setSample(null)
+      return true
     } catch (err) {
-      setError(toMessage(err))
+      setVoiceError(toMessage(err))
+      return false
     } finally {
       setRecordingPhase('idle')
+    }
+  }
+
+  const deleteVoice = async (voice: SavedVoice) => {
+    if (!window.confirm(`Supprimer la voix « ${voice.name} » ?`)) return
+    setVoiceError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/voices/${voice.id}`, { method: 'DELETE' }).catch(() => null)
+      if (!res?.ok) throw new Error('Impossible de supprimer cette voix.')
+
+      const updated = savedVoices.filter((v) => v.id !== voice.id)
+      setSavedVoices(updated)
+      persistSavedVoices(updated)
+      if (selectedVoice?.type === 'cloned' && selectedVoice.id === voice.id) setSelectedVoice(null)
+    } catch (err) {
+      setVoiceError(toMessage(err))
     }
   }
 
@@ -233,8 +307,8 @@ function App() {
     try {
       const body =
         selectedVoice.type === 'cloned'
-          ? { text, voice_sample_id: selectedVoice.id }
-          : { text, voice: selectedVoice.id }
+          ? { text, voice_sample_id: selectedVoice.id, settings: voiceSettings }
+          : { text, voice: selectedVoice.id, settings: voiceSettings }
 
       const data = await apiFetch<{ job_id: string }>(`${API_URL}/api/synthesize`, {
         method: 'POST',
@@ -271,14 +345,27 @@ function App() {
             savedVoices={savedVoices}
             selected={selectedVoice}
             onSelect={setSelectedVoice}
+            onDeleteVoice={deleteVoice}
             cloningEnabled={cloningEnabled}
             recordingPhase={recordingPhase}
             recordingLevel={recordingLevel}
             onStartRecording={startRecording}
             onStopRecording={stopRecording}
+            onImportFile={importVoiceFile}
+            onAddVoice={addVoice}
             recordingPreviewUrl={recordingPreviewUrl}
             voiceName={voiceName}
             onVoiceNameChange={setVoiceName}
+            error={voiceError}
+          />
+
+          <VoiceSettingsPanel
+            settings={voiceSettings}
+            onChange={(settings) => {
+              setVoiceSettings(settings)
+              persistVoiceSettings(settings)
+            }}
+            disabled={status === 'loading'}
           />
 
           <GenerationPanel

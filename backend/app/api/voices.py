@@ -1,7 +1,7 @@
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
@@ -41,6 +41,22 @@ async def clone_voice(request: Request, audio: UploadFile) -> dict[str, str]:
     except ConversionError as exc:
         logger.warning("Rejected voice sample upload: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # Untrusted input: any unexpected decoder failure should still reach
+        # the user as a readable error rather than a bare 500.
+        logger.exception("Unexpected error converting voice sample %r", audio.filename)
+        output_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Impossible de lire ce fichier audio.") from exc
 
     logger.info("Voice sample cloned: %s", voice_id)
     return {"voice_id": str(voice_id)}
+
+
+@router.delete("/voices/{voice_id}", status_code=204)
+@limiter.limit("30/minute")
+def delete_voice(request: Request, voice_id: UUID) -> Response:
+    # Idempotent: a voice already gone still counts as deleted, so the client
+    # can clean up entries whose file was removed server-side.
+    (VOICES_DIR / f"{voice_id}.wav").unlink(missing_ok=True)
+    logger.info("Voice sample deleted: %s", voice_id)
+    return Response(status_code=204)

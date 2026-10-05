@@ -40,13 +40,16 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
+    # Middlewares added last wrap the others: CORS must be outermost so that
+    # early rejections (e.g. 413 from MaxBodySizeMiddleware) still carry CORS
+    # headers, otherwise the browser hides the error message from the frontend.
+    app.add_middleware(MaxBodySizeMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[get_settings().frontend_origin],
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(MaxBodySizeMiddleware)
 
     @app.get("/health")
     def health() -> dict[str, str]:

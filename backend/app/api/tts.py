@@ -1,6 +1,6 @@
 import logging
 from collections.abc import AsyncIterator
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from arq import ArqRedis
@@ -10,10 +10,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, model_validator
 
 from app.core.limiter import limiter
+from app.services.audio_conversion import ConversionError, convert_for_download
 from app.services.queue import get_redis_pool
 from app.services.tts import (
     UnknownVoicePresetError,
     VoiceSampleNotFoundError,
+    VoiceSettings,
     cancel_key,
     output_path,
     resolve_voice_reference,
@@ -24,11 +26,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["tts"])
 
+AUDIO_MEDIA_TYPES = {
+    "webm": "audio/webm",
+    "mp3": "audio/mpeg",
+    "m4a": "audio/mp4",
+    "wav": "audio/wav",
+}
+
 
 class SynthesizeRequest(BaseModel):
     text: str
     voice: str | None = None
     voice_sample_id: UUID | None = None
+    settings: VoiceSettings = VoiceSettings()
 
     @model_validator(mode="after")
     def check_exactly_one_voice_reference(self) -> Self:
@@ -61,7 +71,9 @@ async def synthesize(request: Request, payload: SynthesizeRequest) -> dict[str, 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pool = await get_redis_pool()
-    job = await pool.enqueue_job("synthesize_task", payload.text, voice_reference)
+    job = await pool.enqueue_job(
+        "synthesize_task", payload.text, voice_reference, payload.settings.model_dump()
+    )
     if job is None:
         raise HTTPException(status_code=500, detail="Impossible de lancer la génération.")
     logger.info("Enqueued synthesis job %s (%d chars)", job.job_id, len(payload.text))
@@ -105,11 +117,27 @@ async def synthesis_status(job_id: str) -> dict[str, str]:
 
 
 @router.get("/synthesize/{job_id}/audio")
-def synthesis_audio(job_id: str) -> FileResponse:
+def synthesis_audio(
+    job_id: str, format: Literal["webm", "mp3", "m4a", "wav"] = "webm"
+) -> FileResponse:
     path = output_path(job_id)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Audio introuvable.")
-    return FileResponse(path, media_type="audio/webm", filename=path.name)
+
+    if format == "webm":
+        return FileResponse(path, media_type=AUDIO_MEDIA_TYPES["webm"], filename=path.name)
+
+    # Converted on first request, then reused for later downloads.
+    converted_path = path.with_suffix(f".{format}")
+    if not converted_path.is_file():
+        try:
+            convert_for_download(path, converted_path, format)
+        except ConversionError as exc:
+            logger.warning("%s conversion failed for job %s: %s", format, job_id, exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return FileResponse(
+        converted_path, media_type=AUDIO_MEDIA_TYPES[format], filename=converted_path.name
+    )
 
 
 @router.get("/synthesize/{job_id}/stream")
