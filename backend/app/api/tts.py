@@ -15,6 +15,7 @@ from app.services.queue import get_redis_pool
 from app.services.tts import (
     UnknownVoicePresetError,
     VoiceSampleNotFoundError,
+    VoiceSettings,
     cancel_key,
     output_path,
     resolve_voice_reference,
@@ -37,6 +38,7 @@ class SynthesizeRequest(BaseModel):
     text: str
     voice: str | None = None
     voice_sample_id: UUID | None = None
+    settings: VoiceSettings = VoiceSettings()
 
     @model_validator(mode="after")
     def check_exactly_one_voice_reference(self) -> Self:
@@ -69,7 +71,9 @@ async def synthesize(request: Request, payload: SynthesizeRequest) -> dict[str, 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     pool = await get_redis_pool()
-    job = await pool.enqueue_job("synthesize_task", payload.text, voice_reference)
+    job = await pool.enqueue_job(
+        "synthesize_task", payload.text, voice_reference, payload.settings.model_dump()
+    )
     if job is None:
         raise HTTPException(status_code=500, detail="Impossible de lancer la génération.")
     logger.info("Enqueued synthesis job %s (%d chars)", job.job_id, len(payload.text))

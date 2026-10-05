@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import io
 from typing import ClassVar
 
@@ -7,7 +8,14 @@ import redis as redis_sync
 from arq.connections import RedisSettings
 
 from app.core.config import get_settings
-from app.services.tts import cancel_key, output_path, stream_key, tts_service
+from app.services.audio_effects import VoiceEffects
+from app.services.tts import (
+    VoiceSettings,
+    cancel_key,
+    output_path,
+    stream_key,
+    tts_service,
+)
 
 STREAM_TTL_SECONDS = 3600
 
@@ -37,25 +45,49 @@ class _RelayIO(io.RawIOBase):
         return len(chunk)
 
 
-def _synthesize_and_publish(job_id: str, text: str, voice_reference: str) -> str:
+def _encode(container, stream, frame: av.AudioFrame, samples_written: int) -> int:
+    """Encodes and muxes one frame, renumbering its timestamp after effects
+    (which change the number of samples). Returns the new sample count."""
+    frame.pts = samples_written
+    for packet in stream.encode(frame):
+        container.mux(packet)
+    return samples_written + frame.samples
+
+
+def _model_with_settings(settings: VoiceSettings):
+    """Shallow copy of the shared model with this job's sampling settings:
+    weights are shared, but temp/lsd_decode_steps are plain attributes read at
+    each generation step, so concurrent jobs can use different values."""
+    model = copy.copy(tts_service.model)
+    model.temp = settings.expressiveness
+    model.lsd_decode_steps = settings.precision
+    return model
+
+
+def _synthesize_and_publish(
+    job_id: str, text: str, voice_reference: str, voice_settings: VoiceSettings
+) -> str:
     """Runs synchronously in a worker thread: encodes the generated audio to
     Opus/WebM, writing it to the final file on disk and to a Redis Stream in
     the same pass, so the API can relay it to a listening client in real
     time. Checks for a cancellation flag between chunks so a page reload/
     explicit cancel stops generation early (at worst finishing the sentence
     currently in progress)."""
-    settings = get_settings()
-    client = redis_sync.Redis.from_url(settings.redis_url)
+    client = redis_sync.Redis.from_url(get_settings().redis_url)
     s_key = stream_key(job_id)
     c_key = cancel_key(job_id)
     webm_path = output_path(job_id)
 
     try:
-        model = tts_service.model
+        model = _model_with_settings(voice_settings)
+        effects = VoiceEffects(
+            model.sample_rate, speed=voice_settings.speed, pitch_semitones=voice_settings.pitch
+        )
         model_state = model.get_state_for_audio_prompt(voice_reference, truncate=True)
         audio_chunks = model.generate_audio_stream(model_state=model_state, text_to_generate=text)
 
         cancelled = False
+        samples_received = 0
         samples_written = 0
         with open(webm_path, "wb") as f:
             container = av.open(_RelayIO(f, client, s_key), mode="w", format="webm", options=_MUX_OPTIONS)
@@ -69,11 +101,13 @@ def _synthesize_and_publish(job_id: str, text: str, voice_reference: str) -> str
                 pcm = chunk.clamp(-1, 1).float().cpu().numpy().reshape(1, -1)
                 frame = av.AudioFrame.from_ndarray(pcm, format="fltp", layout="mono")
                 frame.sample_rate = model.sample_rate
-                frame.pts = samples_written
-                samples_written += pcm.shape[1]
-                for packet in stream.encode(frame):
-                    container.mux(packet)
+                frame.pts = samples_received
+                samples_received += pcm.shape[1]
+                for out_frame in effects.process(frame):
+                    samples_written = _encode(container, stream, out_frame, samples_written)
 
+            for out_frame in effects.flush():
+                samples_written = _encode(container, stream, out_frame, samples_written)
             for packet in stream.encode(None):
                 container.mux(packet)
             container.close()
@@ -90,9 +124,14 @@ def _synthesize_and_publish(job_id: str, text: str, voice_reference: str) -> str
         client.close()
 
 
-async def synthesize_task(ctx: dict, text: str, voice_reference: str) -> str:
+async def synthesize_task(
+    ctx: dict, text: str, voice_reference: str, settings: dict | None = None
+) -> str:
     job_id = ctx["job_id"]
-    return await asyncio.to_thread(_synthesize_and_publish, job_id, text, voice_reference)
+    voice_settings = VoiceSettings(**(settings or {}))
+    return await asyncio.to_thread(
+        _synthesize_and_publish, job_id, text, voice_reference, voice_settings
+    )
 
 
 async def on_startup(ctx: dict) -> None:

@@ -50,6 +50,36 @@ def test_synthesize_enqueues_job(client, fake_pool):
     assert response.json() == {"job_id": "abc123"}
 
 
+def test_synthesize_passes_default_settings(client, fake_pool):
+    fake_pool.enqueue_job.return_value = SimpleNamespace(job_id="abc123")
+
+    client.post("/api/synthesize", json={"text": "Bonjour", "voice": "estelle"})
+
+    settings = fake_pool.enqueue_job.call_args.args[3]
+    assert settings == {"precision": 1, "expressiveness": 0.7, "speed": 1.0, "pitch": 0.0}
+
+
+def test_synthesize_passes_custom_settings(client, fake_pool):
+    fake_pool.enqueue_job.return_value = SimpleNamespace(job_id="abc123")
+    custom = {"precision": 4, "expressiveness": 0.9, "speed": 0.8, "pitch": -2.0}
+
+    client.post("/api/synthesize", json={"text": "Bonjour", "voice": "estelle", "settings": custom})
+
+    assert fake_pool.enqueue_job.call_args.args[3] == custom
+
+
+@pytest.mark.parametrize(
+    "bad_settings",
+    [{"precision": 0}, {"precision": 20}, {"expressiveness": 3}, {"speed": 5}, {"pitch": -12}],
+)
+def test_synthesize_rejects_out_of_range_settings(client, fake_pool, bad_settings):
+    response = client.post(
+        "/api/synthesize", json={"text": "Bonjour", "voice": "estelle", "settings": bad_settings}
+    )
+
+    assert response.status_code == 422
+
+
 def test_synthesize_returns_500_when_queue_full(client, fake_pool):
     fake_pool.enqueue_job.return_value = None
 

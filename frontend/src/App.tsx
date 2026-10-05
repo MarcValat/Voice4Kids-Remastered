@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { DocumentUpload, VoiceSelector, GenerationPanel, type VoiceOption } from '@/components'
+import {
+  DocumentUpload,
+  VoiceSelector,
+  VoiceSettingsPanel,
+  GenerationPanel,
+  DEFAULT_VOICE_SETTINGS,
+  type VoiceOption,
+  type VoiceSettings,
+} from '@/components'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
 const SAVED_VOICES_KEY = 'voice4kids_saved_voices'
+const VOICE_SETTINGS_KEY = 'voice4kids_voice_settings'
 const MAX_VOICE_FILE_BYTES = 20 * 1024 * 1024 // must match backend MAX_RECORDING_BYTES
 
 type SavedVoice = { id: string; name: string }
@@ -19,6 +28,23 @@ function loadSavedVoices(): SavedVoice[] {
 
 function persistSavedVoices(voices: SavedVoice[]) {
   localStorage.setItem(SAVED_VOICES_KEY, JSON.stringify(voices))
+}
+
+function loadVoiceSettings(): VoiceSettings {
+  try {
+    const raw = localStorage.getItem(VOICE_SETTINGS_KEY)
+    return raw ? { ...DEFAULT_VOICE_SETTINGS, ...(JSON.parse(raw) as Partial<VoiceSettings>) } : DEFAULT_VOICE_SETTINGS
+  } catch {
+    return DEFAULT_VOICE_SETTINGS
+  }
+}
+
+function persistVoiceSettings(settings: VoiceSettings) {
+  try {
+    localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // Remembering the sliders is a convenience; ignore storage failures.
+  }
 }
 
 function toMessage(err: unknown): string {
@@ -62,6 +88,7 @@ function App() {
   const [voiceName, setVoiceName] = useState('')
   const [savedVoices, setSavedVoices] = useState<SavedVoice[]>([])
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(loadVoiceSettings)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -280,8 +307,8 @@ function App() {
     try {
       const body =
         selectedVoice.type === 'cloned'
-          ? { text, voice_sample_id: selectedVoice.id }
-          : { text, voice: selectedVoice.id }
+          ? { text, voice_sample_id: selectedVoice.id, settings: voiceSettings }
+          : { text, voice: selectedVoice.id, settings: voiceSettings }
 
       const data = await apiFetch<{ job_id: string }>(`${API_URL}/api/synthesize`, {
         method: 'POST',
@@ -330,6 +357,15 @@ function App() {
             voiceName={voiceName}
             onVoiceNameChange={setVoiceName}
             error={voiceError}
+          />
+
+          <VoiceSettingsPanel
+            settings={voiceSettings}
+            onChange={(settings) => {
+              setVoiceSettings(settings)
+              persistVoiceSettings(settings)
+            }}
+            disabled={status === 'loading'}
           />
 
           <GenerationPanel

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import torch
 from pocket_tts import TTSModel
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 
@@ -50,6 +51,20 @@ _FRENCH_PRESET_VOICE_NAMES = [
     "rafael",
 ]
 PRESET_VOICES = {name: name for name in _FRENCH_PRESET_VOICE_NAMES}
+
+
+class VoiceSettings(BaseModel):
+    """Per-generation tuning exposed to the user as sliders."""
+
+    # Model-side: number of refinement passes per audio frame (pocket_tts's
+    # lsd_decode_steps). More = cleaner, more faithful voice, slower.
+    precision: int = Field(default=1, ge=1, le=8)
+    # Model-side: sampling temperature. Low = steady/monotone, high = livelier
+    # but with more risk of stumbling.
+    expressiveness: float = Field(default=0.7, ge=0.3, le=1.0)
+    # Post-processing (see audio_effects.VoiceEffects).
+    speed: float = Field(default=1.0, ge=0.7, le=1.3)
+    pitch: float = Field(default=0.0, ge=-3.0, le=3.0)
 
 
 class VoiceReferenceError(ValueError):
